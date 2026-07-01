@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Globe, RefreshCw, AlertTriangle } from "lucide-react";
 import { api, type FetchResult, type SourceInfo } from "@/lib/api";
@@ -8,11 +8,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/context/ToastContext";
 
+type FetchMode = "all" | "tx" | "fl";
+
 export function SourcesPage() {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [results, setResults] = useState<FetchResult[] | null>(null);
   const [loading, setLoading] = useState(true);
-  const [fetching, setFetching] = useState(false);
+  const [fetching, setFetching] = useState<FetchMode | null>(null);
   const [params] = useSearchParams();
   const { push } = useToast();
 
@@ -26,11 +28,19 @@ export function SourcesPage() {
       .finally(() => setLoading(false));
   }, [push]);
 
-  const runFetch = async () => {
-    setFetching(true);
+  const txSources = useMemo(() => sources.filter((s) => s.state === "TX"), [sources]);
+  const flSources = useMemo(() => sources.filter((s) => s.state === "FL"), [sources]);
+
+  const runFetch = async (mode: FetchMode) => {
+    setFetching(mode);
     setResults(null);
     try {
-      const res = await api.fetchTx();
+      const res =
+        mode === "tx"
+          ? await api.fetchTx()
+          : mode === "fl"
+            ? await api.fetchFl()
+            : await api.fetchAll();
       setResults(res.results);
       const total = res.results.reduce((n, r) => n + r.leads_fetched, 0);
       push({
@@ -45,57 +55,80 @@ export function SourcesPage() {
         message: e instanceof Error ? e.message : undefined,
       });
     } finally {
-      setFetching(false);
+      setFetching(null);
     }
   };
 
   useEffect(() => {
-    if (params.get("fetch") === "1" && !loading) runFetch();
+    if (params.get("fetch") === "1" && !loading) runFetch("all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, params]);
 
+  const renderGrid = (items: SourceInfo[]) => (
+    <div className="grid gap-4 md:grid-cols-3">
+      {items.map((src) => (
+        <Card key={src.key} className="transition-transform hover:-translate-y-0.5">
+          <CardHeader>
+            <div className="flex items-start justify-between">
+              <CardTitle className="text-base">{src.name}</CardTitle>
+              <Globe className="h-4 w-4 text-brand-600" aria-hidden />
+            </div>
+            <CardDescription>{src.description}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-2">
+              <Badge label={src.state} />
+              <Badge label={src.county} />
+            </div>
+            <p className="mt-3 font-mono text-xs text-[hsl(var(--muted))]">{src.key}</p>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+
   return (
     <div className="space-y-8 animate-fade-in">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Data Sources</h1>
           <p className="mt-1 text-[hsl(var(--muted))]">
-            Texas county connectors — live fetch with fixture fallback
+            TX + FL county connectors — live fetch with fixture fallback
           </p>
         </div>
-        <Button loading={fetching} onClick={runFetch}>
-          <Download className="h-4 w-4" />
-          Fetch all TX sources
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button loading={fetching === "tx"} variant="outline" onClick={() => runFetch("tx")}>
+            <Download className="h-4 w-4" />
+            Fetch TX
+          </Button>
+          <Button loading={fetching === "fl"} variant="outline" onClick={() => runFetch("fl")}>
+            <Download className="h-4 w-4" />
+            Fetch FL
+          </Button>
+          <Button loading={fetching === "all"} onClick={() => runFetch("all")}>
+            <Download className="h-4 w-4" />
+            Fetch all
+          </Button>
+        </div>
       </div>
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
+          {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-40 rounded-2xl" />
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          {sources.map((src) => (
-            <Card key={src.key} className="transition-transform hover:-translate-y-0.5">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <CardTitle className="text-base">{src.name}</CardTitle>
-                  <Globe className="h-4 w-4 text-brand-600" aria-hidden />
-                </div>
-                <CardDescription>{src.description}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex gap-2">
-                  <Badge label={src.state} />
-                  <Badge label={src.county} />
-                </div>
-                <p className="mt-3 font-mono text-xs text-[hsl(var(--muted))]">{src.key}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <>
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold">Texas ({txSources.length})</h2>
+            {renderGrid(txSources)}
+          </section>
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold">Florida ({flSources.length})</h2>
+            {renderGrid(flSources)}
+          </section>
+        </>
       )}
 
       {results && (

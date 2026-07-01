@@ -5,8 +5,11 @@ def test_health_endpoint(client):
     assert data["status"] in ("ok", "degraded")
     assert data["require_human_approval"] is True
     assert "TX" in data["target_states"]
+    assert "FL" in data["target_states"]
     assert "Harris" in data["tx_counties"]
+    assert "Miami-Dade" in data["fl_counties"]
     assert data["database"] == "ok"
+    assert data["phase"] == 5
 
 
 def test_root_endpoint():
@@ -16,8 +19,7 @@ def test_root_endpoint():
     client = TestClient(create_app())
     res = client.get("/")
     assert res.status_code == 200
-    # Serves dashboard HTML when dist/ exists, otherwise JSON metadata
     if "application/json" in res.headers.get("content-type", ""):
-        assert res.json()["phase"] == 1
+        assert res.json()["phase"] == 5
     else:
         assert "LeadGen" in res.text or "root" in res.text

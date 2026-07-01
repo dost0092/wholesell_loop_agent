@@ -9,26 +9,41 @@ from sqlalchemy.orm import Session
 from app.auth.deps import require_api_key
 from app.config import get_settings
 from app.core.exceptions import AppError
-from app.db.models import ApprovalQueueItem, Lead, LeadStatus
+from app.db.models import ApprovalQueueItem, ApprovalStatus, DncEntry, Lead, LeadStatus
 from app.db.session import get_db
 from app.schemas.api import (
+    ApprovalDecisionRequest,
     ApprovalItemOut,
-    FetchSourceResult,
+    DncEntryRequest,
+    FetchFlRequest,
+    FetchSourcesRequest,
+    FetchSourcesResponse,
     FetchTxRequest,
-    FetchTxResponse,
     HealthResponse,
+    LeadDetailOut,
     LeadOut,
     LeadStatsResponse,
+    MessageOut,
     PaginatedResponse,
+    PipelineResponse,
     SourceInfo,
 )
-from app.services.lead_ingestion import ingest_raw_leads
-from app.sources.registry import get_source, list_sources
+from app.services import outreach as outreach_service
+from app.services.contact_validation import validate_lead_contacts
+from app.services.owner_discovery import trace_lead
+from app.services.pipeline import run_pipeline
+from app.services.scoring import score_lead
+from app.services.source_fetch import run_source_fetch
+from app.sources.registry import (
+    DEFAULT_ALL_SOURCES,
+    DEFAULT_FL_SOURCES,
+    DEFAULT_TX_SOURCES,
+    list_sources,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-DEFAULT_TX_SOURCES = ["tx.harris.tax_sale", "tx.dallas.trw", "tx.tarrant.tax_sale"]
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -47,14 +62,14 @@ def health(db: Session = Depends(get_db)):
         target_states=settings.target_state_list,
         tx_counties=settings.tx_county_list,
         fl_counties=settings.fl_county_list,
-        phase=1,
+        phase=5,
         database=db_status,
     )
 
 
 @router.get("/sources", response_model=list[SourceInfo])
-def sources():
-    return list_sources()
+def sources(state: str | None = None):
+    return list_sources(state=state)
 
 
 @router.get("/stats/leads", response_model=LeadStatsResponse)
@@ -78,69 +93,47 @@ def lead_stats(db: Session = Depends(get_db), _key: str = Depends(require_api_ke
     )
 
 
-@router.post("/sources/fetch-tx", response_model=FetchTxResponse)
+def _fetch_response(
+    keys: list[str],
+    body: FetchSourcesRequest,
+    db: Session,
+) -> FetchSourcesResponse:
+    results = run_source_fetch(keys, persist=body.persist, db=db)
+    total_in_db = db.query(Lead).count() if body.persist else None
+    return FetchSourcesResponse(results=results, total_leads_in_db=total_in_db)
+
+
+@router.post("/sources/fetch-tx", response_model=FetchSourcesResponse)
 def fetch_tx(
     body: FetchTxRequest,
     db: Session = Depends(get_db),
     _key: str = Depends(require_api_key),
 ):
-    """Run Phase 1 TX county connectors and optionally persist to Postgres."""
+    """Run Phase 1 TX county connectors and optionally persist."""
     keys = body.sources or DEFAULT_TX_SOURCES
-    results: list[FetchSourceResult] = []
+    return _fetch_response(keys, body, db)
 
-    for key in keys:
-        try:
-            source = get_source(key)
-        except KeyError as exc:
-            results.append(
-                FetchSourceResult(
-                    source_key=key,
-                    county="unknown",
-                    leads_fetched=0,
-                    error=str(exc),
-                )
-            )
-            continue
 
-        try:
-            raw_leads = source.fetch()
-            used_fixture = any((r.raw_data or {}).get("fixture_fallback") for r in raw_leads)
-            ingest_stats = None
-            if body.persist:
-                ingest_stats = ingest_raw_leads(db, raw_leads)
+@router.post("/sources/fetch-fl", response_model=FetchSourcesResponse)
+def fetch_fl(
+    body: FetchFlRequest,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Run Phase 2 FL county connectors and optionally persist."""
+    keys = body.sources or DEFAULT_FL_SOURCES
+    return _fetch_response(keys, body, db)
 
-            sample = [
-                {
-                    "address": r.property_address,
-                    "parcel_id": r.parcel_id,
-                    "city": r.city,
-                    "distress_signals": r.distress_signals,
-                }
-                for r in raw_leads[:5]
-            ]
-            results.append(
-                FetchSourceResult(
-                    source_key=key,
-                    county=source.county,
-                    leads_fetched=len(raw_leads),
-                    ingest=ingest_stats,
-                    sample=sample,
-                    used_fixture_fallback=used_fixture,
-                )
-            )
-        except Exception as exc:
-            logger.exception("Fetch failed for source %s", key)
-            results.append(
-                FetchSourceResult(
-                    source_key=key,
-                    county=source.county,
-                    leads_fetched=0,
-                    error=str(exc),
-                )
-            )
 
-    total_in_db = db.query(Lead).count() if body.persist else None
-    return FetchTxResponse(results=results, total_leads_in_db=total_in_db)
+@router.post("/sources/fetch-all", response_model=FetchSourcesResponse)
+def fetch_all(
+    body: FetchSourcesRequest,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Run all TX + FL county connectors."""
+    keys = body.sources or DEFAULT_ALL_SOURCES
+    return _fetch_response(keys, body, db)
 
 
 @router.get("/leads", response_model=PaginatedResponse[LeadOut])
@@ -189,16 +182,169 @@ def list_leads(
     )
 
 
-@router.get("/leads/{lead_id}", response_model=LeadOut)
+@router.get("/leads/{lead_id}", response_model=LeadDetailOut)
 def get_lead(
     lead_id: int,
     db: Session = Depends(get_db),
     _key: str = Depends(require_api_key),
 ):
+    return _get_lead_or_404(db, lead_id)
+
+
+def _get_lead_or_404(db: Session, lead_id: int) -> Lead:
     lead = db.query(Lead).filter(Lead.id == lead_id).first()
     if not lead:
         raise AppError("Lead not found", status_code=404, code="not_found")
     return lead
+
+
+# ---------------------------------------------------------------------------
+# Phase 3-5 pipeline endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/leads/{lead_id}/score", response_model=LeadDetailOut)
+def score_lead_endpoint(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Phase 3 — AI deal scoring for a single lead."""
+    lead = _get_lead_or_404(db, lead_id)
+    return score_lead(db, lead)
+
+
+@router.post("/leads/{lead_id}/trace", response_model=LeadDetailOut)
+def trace_lead_endpoint(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Phase 4 — owner discovery (entity resolution + skip trace)."""
+    lead = _get_lead_or_404(db, lead_id)
+    trace_lead(db, lead)
+    db.refresh(lead)
+    return lead
+
+
+@router.post("/leads/{lead_id}/validate", response_model=LeadDetailOut)
+def validate_lead_endpoint(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Phase 5 — validate the lead's contacts (email MX, phone type, DNC scrub)."""
+    lead = _get_lead_or_404(db, lead_id)
+    validate_lead_contacts(db, lead)
+    db.refresh(lead)
+    return lead
+
+
+@router.post("/leads/{lead_id}/draft", response_model=ApprovalItemOut)
+def draft_lead_endpoint(
+    lead_id: int,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Phase 5 — generate an outreach email draft into the approval queue."""
+    lead = _get_lead_or_404(db, lead_id)
+    return outreach_service.generate_drafts(db, lead)
+
+
+@router.post("/leads/{lead_id}/pipeline", response_model=PipelineResponse)
+def run_pipeline_endpoint(
+    lead_id: int,
+    draft: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Run the full pipeline for a lead: score -> trace -> validate -> draft."""
+    lead = _get_lead_or_404(db, lead_id)
+    return run_pipeline(db, lead, draft=draft)
+
+
+# ---------------------------------------------------------------------------
+# Approval queue actions (human-in-the-loop)
+# ---------------------------------------------------------------------------
+
+
+def _get_item_or_404(db: Session, item_id: int) -> ApprovalQueueItem:
+    item = db.query(ApprovalQueueItem).filter(ApprovalQueueItem.id == item_id).first()
+    if not item:
+        raise AppError("Approval item not found", status_code=404, code="not_found")
+    return item
+
+
+@router.post("/approval-queue/{item_id}/approve", response_model=MessageOut)
+def approve_endpoint(
+    item_id: int,
+    body: ApprovalDecisionRequest,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    item = _get_item_or_404(db, item_id)
+    outreach_service.approve_item(
+        db, item, reviewer=body.reviewer, edited_subject=body.subject, edited_body=body.body
+    )
+    if body.send_now:
+        return outreach_service.send_item(db, item)
+    return item.message
+
+
+@router.post("/approval-queue/{item_id}/reject", response_model=ApprovalItemOut)
+def reject_endpoint(
+    item_id: int,
+    body: ApprovalDecisionRequest,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    item = _get_item_or_404(db, item_id)
+    return outreach_service.reject_item(db, item, reviewer=body.reviewer, notes=body.notes)
+
+
+@router.post("/approval-queue/{item_id}/send", response_model=MessageOut)
+def send_endpoint(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Send an already-approved message (compliance gate enforced)."""
+    item = _get_item_or_404(db, item_id)
+    if item.status not in (ApprovalStatus.APPROVED, ApprovalStatus.EDITED):
+        raise AppError("Item must be approved before sending", status_code=422, code="not_approved")
+    return outreach_service.send_item(db, item)
+
+
+# ---------------------------------------------------------------------------
+# Do Not Contact list management
+# ---------------------------------------------------------------------------
+
+
+@router.post("/dnc")
+def add_dnc(
+    body: DncEntryRequest,
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    value = body.value.strip().lower()
+    existing = db.query(DncEntry).filter(DncEntry.value == value).first()
+    if existing:
+        return {"value": value, "status": "already_present"}
+    db.add(DncEntry(value=value, contact_type=body.contact_type, reason=body.reason))
+    db.commit()
+    return {"value": value, "status": "added"}
+
+
+@router.get("/dnc")
+def list_dnc(
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    entries = db.query(DncEntry).order_by(DncEntry.added_at.desc()).limit(500).all()
+    return [
+        {"value": e.value, "contact_type": e.contact_type, "reason": e.reason}
+        for e in entries
+    ]
 
 
 @router.get("/approval-queue", response_model=PaginatedResponse[ApprovalItemOut])

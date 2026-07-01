@@ -9,6 +9,7 @@ geoalchemy2==0.15.2
 python-dotenv==1.0.1
 httpx==0.27.2
 slowapi==0.1.9
+pypdf==5.1.0
 aiosmtplib==3.0.2
 email-validator==2.2.0
 dnspython==2.6.1

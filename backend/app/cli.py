@@ -1,4 +1,4 @@
-"""CLI for local development — fetch TX leads without starting the API."""
+"""CLI for local development — fetch leads without starting the API."""
 
 from __future__ import annotations
 
@@ -6,22 +6,43 @@ import argparse
 import json
 import sys
 
-from app.api.routes import DEFAULT_TX_SOURCES as TX_SOURCES
-from app.sources.registry import get_source
+from app.sources.registry import (
+    DEFAULT_ALL_SOURCES,
+    DEFAULT_FL_SOURCES,
+    DEFAULT_TX_SOURCES,
+    get_source,
+)
+
+
+def _resolve_sources(state: str | None, explicit: list[str] | None) -> list[str]:
+    if explicit:
+        return explicit
+    if state == "tx":
+        return DEFAULT_TX_SOURCES
+    if state == "fl":
+        return DEFAULT_FL_SOURCES
+    return DEFAULT_ALL_SOURCES
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Fetch TX distressed property leads (Phase 1)")
+    parser = argparse.ArgumentParser(description="Fetch distressed property leads")
     parser.add_argument(
         "--source",
         action="append",
         dest="sources",
-        help="Source key (repeatable). Default: all Phase 1 TX sources.",
+        help="Source key (repeatable).",
+    )
+    parser.add_argument(
+        "--state",
+        choices=["tx", "fl", "all"],
+        default="all",
+        help="Fetch all sources for a state (default: all).",
     )
     parser.add_argument("--json", action="store_true", help="Print JSON output")
     args = parser.parse_args(argv)
 
-    keys = args.sources or TX_SOURCES
+    state = None if args.state == "all" else args.state
+    keys = _resolve_sources(state, args.sources)
     output = []
 
     for key in keys:
@@ -31,8 +52,11 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "source": key,
                 "county": source.county,
+                "state": source.state,
                 "count": len(raw),
-                "fixture_fallback": any((r.raw_data or {}).get("fixture_fallback") for r in raw),
+                "fixture_fallback": any(
+                    (r.raw_data or {}).get("fixture_fallback") for r in raw
+                ),
                 "leads": [
                     {
                         "address": r.property_address,
@@ -51,7 +75,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         for block in output:
             fb = " (fixture fallback)" if block["fixture_fallback"] else " (live)"
-            print(f"\n=== {block['source']} / {block['county']}: {block['count']} leads{fb} ===")
+            print(
+                f"\n=== {block['source']} / {block['county']}, {block['state']}: "
+                f"{block['count']} leads{fb} ==="
+            )
             for lead in block["leads"]:
                 print(f"  • {lead['address']}  [{lead['parcel_id']}]")
 

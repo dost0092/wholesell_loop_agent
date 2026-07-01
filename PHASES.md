@@ -36,6 +36,59 @@ The old project at `d:\Personal\wholeselling_loop_agent\` is the separate Deal L
 | API auth + pagination | `backend/app/auth/`, paginated `/api/leads` |
 | CI pipeline | `.github/workflows/ci.yml` |
 
+## Phase 2 deliverables (complete)
+
+| Item | Location |
+|------|----------|
+| Miami-Dade connector | `backend/app/sources/fl/miami_dade_delinquent.py` |
+| Broward connector | `backend/app/sources/fl/broward_tax_deed.py` |
+| Hillsborough connector | `backend/app/sources/fl/hillsborough_tax_deed.py` |
+| Fetch FL API | `POST /api/sources/fetch-fl` |
+| Fetch all API | `POST /api/sources/fetch-all` |
+| FL fixtures | `backend/fixtures/miami_dade_*`, `broward_*`, `hillsborough_*` |
+| Dashboard FL fetch | `dashboard/src/pages/SourcesPage.tsx` |
+
+## Phase 3 deliverables — AI Scoring (complete)
+
+| Item | Location |
+|------|----------|
+| Deal scorer (heuristic + Claude) | `backend/app/agents/scorer.py` |
+| Scoring service | `backend/app/services/scoring.py` |
+| Score API | `POST /api/leads/{id}/score` |
+| Dashboard score + reasoning | `dashboard/src/pages/LeadsPage.tsx` |
+
+Deterministic heuristic runs with **no API key**; set `ANTHROPIC_API_KEY` to use Claude.
+
+## Phase 4 deliverables — Owner Discovery (complete)
+
+| Item | Location |
+|------|----------|
+| Skip trace (mock + BatchData) | `backend/app/adapters/skip_trace.py` |
+| Entity / LLC lookup (mock + OpenCorporates) | `backend/app/adapters/entity_lookup.py` |
+| Owner discovery service | `backend/app/services/owner_discovery.py` |
+| Trace API | `POST /api/leads/{id}/trace` |
+
+Mock providers produce clearly-flagged synthetic contacts offline; real providers
+activate when `SKIP_TRACE_API_KEY` / `OPENCORPORATES_API_KEY` are set.
+
+## Phase 5 deliverables — Contact Validation + Email Outreach (complete)
+
+| Item | Location |
+|------|----------|
+| Contact validation (MX, phone type, DNC scrub) | `backend/app/services/contact_validation.py` |
+| Email drafting (template + Claude) | `backend/app/agents/message_writer.py` |
+| Outreach service (draft/approve/reject/send) | `backend/app/services/outreach.py` |
+| Email senders (console + SMTP) | `backend/app/adapters/email.py` |
+| Compliance gate (enforced on every send) | `backend/app/compliance/gates.py` |
+| Pipeline orchestrator | `backend/app/services/pipeline.py` |
+| Validate / draft / pipeline APIs | `POST /api/leads/{id}/validate`, `/draft`, `/pipeline` |
+| Approval actions | `POST /api/approval-queue/{id}/approve\|reject\|send` |
+| DNC list management | `GET\|POST /api/dnc` |
+| Approval review UI | `dashboard/src/pages/ApprovalPage.tsx` |
+
+Human approval is required by default (`REQUIRE_HUMAN_APPROVAL=true`). With no SMTP
+configured, sends are logged via a console sender so the flow is fully testable.
+
 ## Quick commands
 
 ```bash

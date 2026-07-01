@@ -22,9 +22,9 @@ class HealthResponse(BaseModel):
     target_states: list[str]
     tx_counties: list[str]
     fl_counties: list[str]
-    phase: int = 1
+    phase: int = 5
     database: str = "unknown"
-    version: str = "0.2.0"
+    version: str = "0.5.0"
 
 
 class LeadOut(BaseModel):
@@ -52,6 +52,75 @@ class LeadStatsResponse(BaseModel):
     by_signal: dict[str, int]
 
 
+class ContactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    contact_type: str
+    value: str
+    line_type: str | None
+    validated: bool
+    confidence_score: float
+    source: str | None
+    validation_details: dict | None
+
+
+class OwnerOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str | None
+    mailing_address: str | None
+    is_llc: bool
+    entity_name: str | None
+    confidence_score: float
+    source_list: list | None
+    contacts: list[ContactOut] = Field(default_factory=list)
+
+
+class LeadDetailOut(LeadOut):
+    score_reasoning: str | None = None
+    motivation_summary: str | None = None
+    offer_strategy: str | None = None
+    estimated_arv: float | None = None
+    estimated_equity: float | None = None
+    owners: list[OwnerOut] = Field(default_factory=list)
+
+
+class PipelineResponse(BaseModel):
+    lead_id: int
+    status: str
+    steps: dict
+
+
+class MessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    lead_id: int
+    contact_id: int | None
+    channel: MessageChannel
+    subject: str | None
+    body: str
+    status: MessageStatus
+    sent_at: datetime | None
+    created_at: datetime
+
+
+class ApprovalDecisionRequest(BaseModel):
+    reviewer: str = Field(default="operator", description="Who reviewed the draft")
+    subject: str | None = Field(default=None, description="Edited subject (optional)")
+    body: str | None = Field(default=None, description="Edited body (optional)")
+    notes: str | None = None
+    send_now: bool = Field(default=False, description="Send immediately after approving")
+
+
+class DncEntryRequest(BaseModel):
+    value: str
+    contact_type: str = Field(default="email", description="email | phone")
+    reason: str | None = None
+
+
 class ApprovalItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,14 +141,6 @@ class SourceInfo(BaseModel):
     description: str
 
 
-class FetchTxRequest(BaseModel):
-    sources: list[str] | None = Field(
-        default=None,
-        description="Source keys, e.g. tx.harris.tax_sale. Default: all TX Phase 1 sources.",
-    )
-    persist: bool = Field(default=True, description="Save leads to Postgres")
-
-
 class FetchSourceResult(BaseModel):
     source_key: str
     county: str
@@ -90,6 +151,31 @@ class FetchSourceResult(BaseModel):
     error: str | None = None
 
 
-class FetchTxResponse(BaseModel):
+class FetchSourcesRequest(BaseModel):
+    sources: list[str] | None = Field(
+        default=None,
+        description="Source keys. Default depends on endpoint.",
+    )
+    persist: bool = Field(default=True, description="Save leads to database")
+
+
+class FetchTxRequest(FetchSourcesRequest):
+    sources: list[str] | None = Field(
+        default=None,
+        description="TX source keys, e.g. tx.harris.tax_sale. Default: all TX sources.",
+    )
+
+
+class FetchFlRequest(FetchSourcesRequest):
+    sources: list[str] | None = Field(
+        default=None,
+        description="FL source keys, e.g. fl.miami_dade.delinquent. Default: all FL sources.",
+    )
+
+
+class FetchSourcesResponse(BaseModel):
     results: list[FetchSourceResult]
     total_leads_in_db: int | None = None
+
+
+FetchTxResponse = FetchSourcesResponse

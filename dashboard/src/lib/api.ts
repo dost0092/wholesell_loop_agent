@@ -75,6 +75,53 @@ export interface Lead {
   created_at: string;
 }
 
+export interface Contact {
+  id: number;
+  contact_type: string;
+  value: string;
+  line_type: string | null;
+  validated: boolean;
+  confidence_score: number;
+  source: string | null;
+  validation_details: Record<string, unknown> | null;
+}
+
+export interface Owner {
+  id: number;
+  name: string | null;
+  mailing_address: string | null;
+  is_llc: boolean;
+  entity_name: string | null;
+  confidence_score: number;
+  source_list: string[] | null;
+  contacts: Contact[];
+}
+
+export interface LeadDetail extends Lead {
+  score_reasoning: string | null;
+  motivation_summary: string | null;
+  offer_strategy: string | null;
+  estimated_arv: number | null;
+  estimated_equity: number | null;
+  owners: Owner[];
+}
+
+export interface PipelineResult {
+  lead_id: number;
+  status: string;
+  steps: Record<string, unknown>;
+}
+
+export interface ApprovalItem {
+  id: number;
+  lead_id: number;
+  channel: string;
+  draft_subject: string | null;
+  draft_body: string;
+  status: string;
+  created_at: string;
+}
+
 export interface LeadStats {
   total: number;
   by_county: Record<string, number>;
@@ -118,10 +165,17 @@ export const api = {
   fetchTx: (sources?: string[], persist = true) =>
     request<{ results: FetchResult[]; total_leads_in_db: number | null }>(
       "/api/sources/fetch-tx",
-      {
-        method: "POST",
-        body: JSON.stringify({ sources, persist }),
-      },
+      { method: "POST", body: JSON.stringify({ sources, persist }) },
+    ),
+  fetchFl: (sources?: string[], persist = true) =>
+    request<{ results: FetchResult[]; total_leads_in_db: number | null }>(
+      "/api/sources/fetch-fl",
+      { method: "POST", body: JSON.stringify({ sources, persist }) },
+    ),
+  fetchAll: (sources?: string[], persist = true) =>
+    request<{ results: FetchResult[]; total_leads_in_db: number | null }>(
+      "/api/sources/fetch-all",
+      { method: "POST", body: JSON.stringify({ sources, persist }) },
     ),
   leads: (params: Record<string, string | number>) => {
     const qs = new URLSearchParams(
@@ -129,15 +183,38 @@ export const api = {
     );
     return request<Paginated<Lead>>(`/api/leads?${qs}`);
   },
-  lead: (id: number) => request<Lead>(`/api/leads/${id}`),
+  lead: (id: number) => request<LeadDetail>(`/api/leads/${id}`),
+
+  scoreLead: (id: number) =>
+    request<LeadDetail>(`/api/leads/${id}/score`, { method: "POST" }),
+  traceLead: (id: number) =>
+    request<LeadDetail>(`/api/leads/${id}/trace`, { method: "POST" }),
+  validateLead: (id: number) =>
+    request<LeadDetail>(`/api/leads/${id}/validate`, { method: "POST" }),
+  draftLead: (id: number) =>
+    request<ApprovalItem>(`/api/leads/${id}/draft`, { method: "POST" }),
+  runPipeline: (id: number, draft = true) =>
+    request<PipelineResult>(`/api/leads/${id}/pipeline?draft=${draft}`, {
+      method: "POST",
+    }),
+
   approvalQueue: (page = 1) =>
-    request<Paginated<{
-      id: number;
-      lead_id: number;
-      channel: string;
-      draft_subject: string | null;
-      draft_body: string;
-      status: string;
-      created_at: string;
-    }>>(`/api/approval-queue?page=${page}&page_size=25`),
+    request<Paginated<ApprovalItem>>(
+      `/api/approval-queue?page=${page}&page_size=25`,
+    ),
+  approveItem: (id: number, body: { reviewer?: string; subject?: string; body?: string; send_now?: boolean }) =>
+    request<{ id: number; status: string; sent_at: string | null }>(
+      `/api/approval-queue/${id}/approve`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  rejectItem: (id: number, notes?: string) =>
+    request<ApprovalItem>(`/api/approval-queue/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ reviewer: "operator", notes }),
+    }),
+  sendItem: (id: number) =>
+    request<{ id: number; status: string; sent_at: string | null }>(
+      `/api/approval-queue/${id}/send`,
+      { method: "POST" },
+    ),
 };

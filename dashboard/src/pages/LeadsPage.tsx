@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { api, type Lead } from "@/lib/api";
+import { api, type Lead, type LeadDetail } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -18,8 +18,12 @@ export function LeadsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [county, setCounty] = useState("");
+  const [stateFilter, setStateFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Lead | null>(null);
+  const [detail, setDetail] = useState<LeadDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [running, setRunning] = useState<string | null>(null);
   const { push } = useToast();
 
   useEffect(() => {
@@ -33,6 +37,7 @@ export function LeadsPage() {
       const params: Record<string, string | number> = { page, page_size: 25 };
       if (debouncedSearch) params.search = debouncedSearch;
       if (county) params.county = county;
+      if (stateFilter) params.state = stateFilter;
       const res = await api.leads(params);
       setLeads(res.items);
       setTotal(res.total);
@@ -46,11 +51,56 @@ export function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, county, push]);
+  }, [page, debouncedSearch, county, stateFilter, push]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const openLead = useCallback(
+    async (lead: Lead) => {
+      setSelected(lead);
+      setDetail(null);
+      setDetailLoading(true);
+      try {
+        setDetail(await api.lead(lead.id));
+      } catch (e) {
+        push({
+          type: "error",
+          title: "Failed to load lead detail",
+          message: e instanceof Error ? e.message : undefined,
+        });
+      } finally {
+        setDetailLoading(false);
+      }
+    },
+    [push],
+  );
+
+  const runAction = useCallback(
+    async (
+      label: string,
+      fn: () => Promise<unknown>,
+      successMsg: string,
+    ) => {
+      setRunning(label);
+      try {
+        await fn();
+        if (selected) setDetail(await api.lead(selected.id));
+        await load();
+        push({ type: "success", title: successMsg });
+      } catch (e) {
+        push({
+          type: "error",
+          title: `${label} failed`,
+          message: e instanceof Error ? e.message : undefined,
+        });
+      } finally {
+        setRunning(null);
+      }
+    },
+    [selected, load, push],
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -80,9 +130,28 @@ export function LeadsPage() {
             aria-label="Filter by county"
           >
             <option value="">All counties</option>
-            <option value="Harris">Harris</option>
-            <option value="Dallas">Dallas</option>
-            <option value="Tarrant">Tarrant</option>
+            <optgroup label="Texas">
+              <option value="Harris">Harris</option>
+              <option value="Dallas">Dallas</option>
+              <option value="Tarrant">Tarrant</option>
+            </optgroup>
+            <optgroup label="Florida">
+              <option value="Miami-Dade">Miami-Dade</option>
+              <option value="Broward">Broward</option>
+              <option value="Hillsborough">Hillsborough</option>
+            </optgroup>
+          </Select>
+          <Select
+            value={stateFilter}
+            onChange={(e) => {
+              setStateFilter(e.target.value);
+              setPage(1);
+            }}
+            aria-label="Filter by state"
+          >
+            <option value="">All states</option>
+            <option value="TX">Texas</option>
+            <option value="FL">Florida</option>
           </Select>
         </div>
       </div>
@@ -104,7 +173,7 @@ export function LeadsPage() {
                 <tr className="border-b border-[hsl(var(--border))] bg-[hsl(var(--surface-muted))]/50 text-left text-xs uppercase tracking-wide text-[hsl(var(--muted))]">
                   <th className="px-4 py-3 font-medium">Address</th>
                   <th className="px-4 py-3 font-medium">County</th>
-                  <th className="px-4 py-3 font-medium">Parcel</th>
+                  <th className="px-4 py-3 font-medium">Score</th>
                   <th className="px-4 py-3 font-medium">Signals</th>
                   <th className="px-4 py-3 font-medium">Added</th>
                 </tr>
@@ -114,13 +183,19 @@ export function LeadsPage() {
                   <tr
                     key={lead.id}
                     className="cursor-pointer border-b border-[hsl(var(--border))] transition-colors hover:bg-[hsl(var(--surface-muted))]/50"
-                    onClick={() => setSelected(lead)}
+                    onClick={() => openLead(lead)}
                   >
                     <td className="max-w-xs truncate px-4 py-3 font-medium">
                       {lead.property_address}
                     </td>
                     <td className="px-4 py-3">{lead.county}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{lead.parcel_id ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      {lead.deal_score != null ? (
+                        <span className="font-semibold">{lead.deal_score}</span>
+                      ) : (
+                        <span className="text-[hsl(var(--muted))]">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {(lead.distress_signals ?? []).slice(0, 2).map((s) => (
@@ -179,19 +254,148 @@ export function LeadsPage() {
             className="max-h-[85vh] w-full max-w-lg overflow-y-auto animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="border-b border-[hsl(var(--border))] p-6">
-              <h2 className="text-lg font-semibold">{selected.property_address}</h2>
-              <p className="text-sm text-[hsl(var(--muted))]">
-                {selected.county}, {selected.state}
-              </p>
+            <div className="flex items-start justify-between border-b border-[hsl(var(--border))] p-6">
+              <div>
+                <h2 className="text-lg font-semibold">{selected.property_address}</h2>
+                <p className="text-sm text-[hsl(var(--muted))]">
+                  {selected.county}, {selected.state}
+                </p>
+              </div>
+              {detail?.deal_score != null && (
+                <div className="text-right">
+                  <div className="text-2xl font-bold">{detail.deal_score}</div>
+                  <div className="text-xs text-[hsl(var(--muted))]">deal score</div>
+                </div>
+              )}
             </div>
+
             <div className="space-y-4 p-6 text-sm">
               <div className="flex flex-wrap gap-2">
-                <Badge label={selected.status} />
+                <Badge label={detail?.status ?? selected.status} />
                 {(selected.distress_signals ?? []).map((s) => (
                   <Badge key={s} label={s} />
                 ))}
               </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  loading={running === "Pipeline"}
+                  disabled={running !== null}
+                  onClick={() =>
+                    runAction("Pipeline", () => api.runPipeline(selected.id), "Pipeline complete")
+                  }
+                >
+                  Run pipeline
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={running === "Score"}
+                  disabled={running !== null}
+                  onClick={() => runAction("Score", () => api.scoreLead(selected.id), "Lead scored")}
+                >
+                  Score
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={running === "Trace"}
+                  disabled={running !== null}
+                  onClick={() => runAction("Trace", () => api.traceLead(selected.id), "Owner traced")}
+                >
+                  Trace owner
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={running === "Validate"}
+                  disabled={running !== null}
+                  onClick={() =>
+                    runAction("Validate", () => api.validateLead(selected.id), "Contacts validated")
+                  }
+                >
+                  Validate
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  loading={running === "Draft"}
+                  disabled={running !== null}
+                  onClick={() =>
+                    runAction("Draft", () => api.draftLead(selected.id), "Draft added to queue")
+                  }
+                >
+                  Draft email
+                </Button>
+              </div>
+
+              {detailLoading && (
+                <p className="text-[hsl(var(--muted))]">Loading enrichment…</p>
+              )}
+
+              {detail?.motivation_summary && (
+                <div className="rounded-xl bg-[hsl(var(--surface-muted))] p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase text-[hsl(var(--muted))]">
+                    Motivation
+                  </p>
+                  <p>{detail.motivation_summary}</p>
+                </div>
+              )}
+              {detail?.offer_strategy && (
+                <div className="rounded-xl bg-[hsl(var(--surface-muted))] p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase text-[hsl(var(--muted))]">
+                    Offer strategy
+                  </p>
+                  <p>{detail.offer_strategy}</p>
+                </div>
+              )}
+              {detail?.score_reasoning && (
+                <div>
+                  <p className="mb-1 text-xs font-semibold uppercase text-[hsl(var(--muted))]">
+                    Score reasoning
+                  </p>
+                  <p className="text-[hsl(var(--muted))]">{detail.score_reasoning}</p>
+                </div>
+              )}
+
+              {detail && detail.owners.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase text-[hsl(var(--muted))]">
+                    Owners &amp; contacts
+                  </p>
+                  {detail.owners.map((owner) => (
+                    <div
+                      key={owner.id}
+                      className="rounded-xl border border-[hsl(var(--border))] p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{owner.name ?? "Unknown owner"}</span>
+                        {owner.is_llc && <Badge label="entity" />}
+                      </div>
+                      {owner.entity_name && (
+                        <p className="text-xs text-[hsl(var(--muted))]">{owner.entity_name}</p>
+                      )}
+                      <div className="mt-2 space-y-1">
+                        {owner.contacts.length === 0 && (
+                          <p className="text-xs text-[hsl(var(--muted))]">No contacts yet</p>
+                        )}
+                        {owner.contacts.map((c) => (
+                          <div key={c.id} className="flex items-center justify-between text-xs">
+                            <span className="font-mono">
+                              {c.value}
+                              {c.line_type ? ` (${c.line_type})` : ""}
+                            </span>
+                            <Badge label={c.validated ? "valid" : "unverified"} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <dl className="grid gap-2">
                 <div className="flex justify-between">
                   <dt className="text-[hsl(var(--muted))]">Parcel ID</dt>
@@ -206,11 +410,7 @@ export function LeadsPage() {
                   <dd>{formatDate(selected.created_at)}</dd>
                 </div>
               </dl>
-              {selected.raw_data && (
-                <pre className="max-h-40 overflow-auto rounded-xl bg-[hsl(var(--surface-muted))] p-3 text-xs">
-                  {JSON.stringify(selected.raw_data, null, 2)}
-                </pre>
-              )}
+
               <Button variant="outline" className="w-full" onClick={() => setSelected(null)}>
                 Close
               </Button>

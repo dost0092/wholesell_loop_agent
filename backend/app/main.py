@@ -76,7 +76,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="TX/FL Lead-Gen System",
         description="Distressed property lead generation and outreach (TX + FL only)",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
     app.state.limiter = limiter
@@ -103,8 +103,8 @@ def create_app() -> FastAPI:
         def root():
             return {
                 "app": "TX/FL Lead-Gen System",
-                "phase": 1,
-                "version": "0.2.0",
+                "phase": 5,
+                "version": "0.5.0",
                 "docs": "/docs",
                 "health": "/api/health",
                 "dashboard_dev": "cd dashboard && npm run dev  →  http://localhost:5173",

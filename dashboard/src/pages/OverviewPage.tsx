@@ -97,7 +97,7 @@ export function OverviewPage() {
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Overview</h1>
         <p className="mt-1 text-[hsl(var(--muted))]">
-          Distressed property leads across Texas counties
+          Distressed property leads across Texas and Florida counties
         </p>
       </div>
 
@@ -135,7 +135,7 @@ export function OverviewPage() {
         <Card>
           <CardHeader>
             <CardTitle>Leads by county</CardTitle>
-            <CardDescription>Distribution across TX counties</CardDescription>
+            <CardDescription>Distribution across TX and FL counties</CardDescription>
           </CardHeader>
           <CardContent className="h-72">
             {loading ? (

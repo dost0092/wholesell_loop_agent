@@ -35,7 +35,30 @@ def test_stats_endpoint(client, db_session, sample_raw_lead):
     assert res.json()["total"] == 1
 
 
+def test_list_sources_includes_fl():
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+
+    client = TestClient(create_app())
+    res = client.get("/api/sources?state=FL")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) == 3
+    counties = {item["county"] for item in data}
+    assert counties == {"Miami-Dade", "Broward", "Hillsborough"}
+
+
+def test_fetch_fl_endpoint(client, db_session):
+    res = client.post("/api/sources/fetch-fl", json={"persist": True})
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["results"]) == 3
+    assert body["total_leads_in_db"] >= 1
+
+
 def test_health_includes_database(client):
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json()["database"] in ("ok", "unavailable")
+    data = res.json()
+    assert data["database"] in ("ok", "unavailable")
+    assert data["phase"] == 5

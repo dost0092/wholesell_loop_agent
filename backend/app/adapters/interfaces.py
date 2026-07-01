@@ -33,6 +33,29 @@ class LeadSource(ABC):
 
 
 @dataclass
+class ScoreResult:
+    """Output of the deal scoring engine (Phase 3)."""
+
+    deal_score: int  # 0-100
+    score_reasoning: str
+    motivation_summary: str
+    offer_strategy: str
+    estimated_arv: float | None = None
+    estimated_equity: float | None = None
+    provider: str = "heuristic"
+
+
+class DealScorer(ABC):
+    """Ranks a distressed-property lead by deal potential and seller motivation."""
+
+    name: str = "scorer"
+
+    @abstractmethod
+    def score(self, lead: dict) -> ScoreResult:
+        ...
+
+
+@dataclass
 class ContactRecord:
     name: str | None = None
     mailing_address: str | None = None
@@ -43,9 +66,44 @@ class ContactRecord:
 
 
 class SkipTraceProvider(ABC):
+    name: str = "skip_trace"
+
     @abstractmethod
     def trace(self, owner_name: str, property_address: str, city: str, state: str) -> ContactRecord:
         ...
+
+
+@dataclass
+class EntityRecord:
+    """Business-entity lookup result (Phase 4 — LLC / corp registries)."""
+
+    is_entity: bool = False
+    entity_name: str | None = None
+    officers: list[dict] = field(default_factory=list)  # {name, role}
+    registered_agent: str | None = None
+    status: str | None = None
+    provider: str = ""
+    raw_response: dict = field(default_factory=dict)
+
+
+class EntityLookupProvider(ABC):
+    """Resolve an LLC / corporation to its officers and registered agent."""
+
+    name: str = "entity_lookup"
+
+    @abstractmethod
+    def lookup(self, entity_name: str, state: str) -> EntityRecord:
+        ...
+
+
+@dataclass
+class ContactValidationResult:
+    """Validation outcome for a single email or phone (Phase 5)."""
+
+    is_valid: bool
+    line_type: str | None = None  # mobile | landline | voip | unknown (phones)
+    confidence: float = 0.0
+    details: dict = field(default_factory=dict)
 
 
 @dataclass
