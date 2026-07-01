@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface: 0 0% 98%;
+    --surface-elevated: 0 0% 100%;
+    --surface-muted: 220 14% 96%;
+    --foreground: 222 47% 11%;
+    --muted: 215 16% 47%;
+    --border: 214 32% 91%;
+    --ring: 211 96% 53%;
+  }
+
+  .dark {
+    --surface: 222 47% 6%;
+    --surface-elevated: 222 47% 9%;
+    --surface-muted: 217 33% 12%;
+    --foreground: 210 40% 98%;
+    --muted: 215 20% 65%;
+    --border: 217 33% 17%;
+    --ring: 211 96% 53%;
+  }
+
+  * {
+    @apply border-[hsl(var(--border))];
+  }
+
+  html {
+    @apply scroll-smooth antialiased;
+  }
+
+  body {
+    @apply bg-[hsl(var(--surface))] text-[hsl(var(--foreground))] font-sans;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-[hsl(var(--surface))];
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply rounded-2xl border border-white/20 bg-white/70 shadow-glass backdrop-blur-xl dark:border-white/10 dark:bg-white/5;
+  }
+
+  .skeleton {
+    @apply animate-shimmer rounded-lg bg-gradient-to-r from-[hsl(var(--surface-muted))] via-white/40 to-[hsl(var(--surface-muted))] bg-[length:200%_100%] dark:via-white/10;
+  }
+}

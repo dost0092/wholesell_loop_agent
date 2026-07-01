@@ -1,0 +1,9 @@
+DALLAS COUNTY TAX OFFICE - UNPAID ACCOUNTS SUMMARY (SAMPLE)
+------------------------------------------------------------------------------------------------------------------------
+ACCOUNT      OWNER NAME                      SITUS ADDRESS                         DELINQ AMT
+------------------------------------------------------------------------------------------------------------------------
+R00001234567 SMITH JOHN A                    1234 MAIN ST DALLAS TX 75201          4521.33
+R00002345678 GARCIA MARIA L                  5678 ELM ST DALLAS TX 75203           12890.00
+R00003456789 OWENS PROPERTIES LLC            910 COMMERCE ST DALLAS TX 75202       8750.50
+R00004567890 NGUYEN PATRICIA                 2210 ROSS AVE DALLAS TX 75201         3200.00
+R00005678901 HARRIS COUNTY HOLDINGS          4500 S LAMAR ST DALLAS TX 75215       15600.75
