@@ -42,7 +42,11 @@ limiter = Limiter(key_func=_rate_limit_key, default_limits=["120/minute"])
 async def lifespan(app: FastAPI):
     setup_logging()
     init_db()
+    from app.email.scheduler import start_email_scheduler, stop_email_scheduler
+
+    start_email_scheduler()
     yield
+    stop_email_scheduler()
 
 
 def _mount_dashboard(app: FastAPI) -> bool:

@@ -179,3 +179,17 @@ class FetchSourcesResponse(BaseModel):
 
 
 FetchTxResponse = FetchSourcesResponse
+
+
+class EmailStatsResponse(BaseModel):
+    total_scheduled: int
+    total_sent: int
+    total_failed: int
+    total_skipped: int
+    total_retry_pending: int
+    next_scheduled_email: datetime | None
+    average_send_duration_ms: float | None
+    retry_total: int
+    retry_average: float
+    email_provider: str
+    scheduler_enabled: bool

@@ -15,6 +15,7 @@ from app.schemas.api import (
     ApprovalDecisionRequest,
     ApprovalItemOut,
     DncEntryRequest,
+    EmailStatsResponse,
     FetchFlRequest,
     FetchSourcesRequest,
     FetchSourcesResponse,
@@ -370,3 +371,45 @@ def list_approval_queue(
         page_size=page_size,
         pages=pages,
     )
+
+
+# ---------------------------------------------------------------------------
+# Email scheduler monitoring
+# ---------------------------------------------------------------------------
+
+
+@router.get("/email/stats", response_model=EmailStatsResponse)
+def email_stats(
+    db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Monitoring stats for the daily Gmail send pipeline."""
+    from app.email.monitoring import get_email_stats
+
+    settings = get_settings()
+    stats = get_email_stats(db, tz_name=settings.email_timezone)
+    return EmailStatsResponse(
+        total_scheduled=stats.total_scheduled,
+        total_sent=stats.total_sent,
+        total_failed=stats.total_failed,
+        total_skipped=stats.total_skipped,
+        total_retry_pending=stats.total_retry_pending,
+        next_scheduled_email=stats.next_scheduled_email,
+        average_send_duration_ms=stats.average_send_duration_ms,
+        retry_total=stats.retry_total,
+        retry_average=stats.retry_average,
+        email_provider=settings.email_provider,
+        scheduler_enabled=settings.email_scheduler_enabled,
+    )
+
+
+@router.post("/email/plan-today")
+def plan_today_emails(
+    _db: Session = Depends(get_db),
+    _key: str = Depends(require_api_key),
+):
+    """Manually trigger daily email planning (normally runs on schedule)."""
+    from app.email.scheduler import DailyEmailScheduler
+
+    count = DailyEmailScheduler().plan_daily_sends()
+    return {"scheduled": count}

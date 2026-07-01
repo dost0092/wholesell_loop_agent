@@ -1,8 +1,9 @@
 """Phase 5 — email senders.
 
-- ConsoleEmailSender: logs the message instead of sending. Default when SMTP is
-  not configured, so the full pipeline is testable without a mailbox.
-- SmtpEmailSender: real send via the user's own SMTP (e.g. Gmail App Password).
+- ConsoleEmailSender: logs the message instead of sending. Default when no
+  provider is configured, so the full pipeline is testable without a mailbox.
+- SmtpEmailSender: real send via SMTP (e.g. Gmail App Password).
+- GmailApiEmailSender: production send via Gmail API + OAuth 2.0.
 """
 
 from __future__ import annotations
@@ -60,8 +61,25 @@ class SmtpEmailSender(EmailSender):
             return False
 
 
+class GmailApiEmailSender(EmailSender):
+    """Adapter bridging the legacy ``EmailSender`` interface to ``GmailEmailProvider``."""
+
+    name = "gmail_api"
+
+    def __init__(self):
+        from app.email.sender import GmailEmailProvider
+
+        self._provider = GmailEmailProvider()
+
+    def send(self, email: OutboundEmail) -> bool:
+        result = self._provider.send(email)
+        return result.success
+
+
 def get_email_sender() -> EmailSender:
     settings = get_settings()
-    if settings.smtp_user and settings.smtp_password:
+    if settings.email_provider == "gmail_api" and settings.gmail_api_configured:
+        return GmailApiEmailSender()
+    if settings.email_provider == "smtp" or (settings.smtp_user and settings.smtp_password):
         return SmtpEmailSender()
     return ConsoleEmailSender()

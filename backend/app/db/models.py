@@ -180,6 +180,63 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class DeliveryStatus(str, enum.Enum):
+    SCHEDULED = "scheduled"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    RETRY_PENDING = "retry_pending"
+    BOUNCED = "bounced"
+
+
+class EmailLog(Base):
+    """Persistent log of every email send attempt — survives restarts."""
+
+    __tablename__ = "email_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), index=True
+    )
+    recipient_email: Mapped[str] = mapped_column(String(320), index=True)
+    subject: Mapped[str] = mapped_column(String(500))
+    body_hash: Mapped[str] = mapped_column(String(64), index=True)
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    sent_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_status: Mapped[DeliveryStatus] = mapped_column(
+        Enum(DeliveryStatus, name="delivery_status"),
+        default=DeliveryStatus.SCHEDULED,
+        index=True,
+    )
+    error_message: Mapped[str | None] = mapped_column(Text)
+    skip_reason: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    gmail_message_id: Mapped[str | None] = mapped_column(String(200))
+    send_duration_ms: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    lead: Mapped["Lead"] = relationship()
+    message: Mapped["Message | None"] = relationship()
+
+
+class OAuthToken(Base):
+    """Persisted OAuth tokens for Gmail API — access token refreshed automatically."""
+
+    __tablename__ = "oauth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(50), unique=True, index=True)
+    access_token: Mapped[str | None] = mapped_column(Text)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    token_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scopes: Mapped[str | None] = mapped_column(String(500))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ApprovalQueueItem(Base):
     __tablename__ = "approval_queue"
 

@@ -56,6 +56,28 @@ class Settings(BaseSettings):
     scheduler_cron_minute: int = 0
     scheduler_timezone: str = "America/Chicago"
 
+    # Email provider selection: console | smtp | gmail_api
+    email_provider: str = "console"
+
+    # Gmail API (OAuth 2.0) — preferred over SMTP for production sending
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_refresh_token: str = ""
+    sender_email: str = ""
+    email_sender_name: str = ""
+
+    # Daily email scheduler
+    email_scheduler_enabled: bool = False
+    email_timezone: str = "America/Chicago"
+    emails_per_day: int = 10
+    email_start_time: str = "09:00"
+    email_end_time: str = "18:00"
+    email_interval_minutes: int = 60
+    email_jitter_min_minutes: int = 5
+    email_jitter_max_minutes: int = 10
+    email_max_retries: int = 5
+    email_retry_base_seconds: int = 60
+
     @property
     def target_state_list(self) -> list[str]:
         return [s.strip().upper() for s in self.target_states.split(",") if s.strip()]
@@ -75,6 +97,20 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
+
+    @property
+    def gmail_api_configured(self) -> bool:
+        return bool(
+            self.google_client_id
+            and self.google_client_secret
+            and self.google_refresh_token
+            and self.sender_email
+        )
+
+    @property
+    def email_start_hour_minute(self) -> tuple[int, int]:
+        parts = self.email_start_time.strip().split(":")
+        return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
 
 
 @lru_cache
